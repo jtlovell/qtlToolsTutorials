@@ -1,0 +1,248 @@
+---
+title: "QTL Mapping Tutorial"
+author: "John T. Lovell"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 1
+    number_sections: true
+    fig_caption: yes
+---
+
+***
+
+  [email: johntlovell@gmail.com](johntlovell@gmail.com)  --  [website: lovelleeb.weebly.com](lovelleeb.weebly.com)  --  [github: github.com/jtlovell/qtlTools](https://github.com/jtlovell/qtlTools)
+
+***
+
+```{r, include=FALSE, message=FALSE}
+suppressPackageStartupMessages(library(knitr))
+knitr::opts_chunk$set(echo = TRUE, 
+                      message=FALSE, 
+                      error=FALSE, 
+                      warning = FALSE, 
+                      fig.width = 5.5, fig.height = 3.5)
+
+suppressPackageStartupMessages(library(qtlTools))
+suppressPackageStartupMessages(library(qtlDesign))
+suppressPackageStartupMessages(library(ggplot2))
+```
+
+# Setup
+For this tutorial, we need a couple datasets and R packages. 
+
+1. The [`R/qtl`](www.rqtl.org) R pacakge. 
+  - `install.packages("qtl")`
+  - `library(qtl)`
+  
+2. The [`qtlTools`](https://github.com/jtlovell/qtlTools) and [`qtlToolsTutorials`](https://github.com/jtlovell/qtlToolsTutorials) R packages, in development. 
+  - If you don't have the devtools package, run:
+    - `install.packages("devtools")`
+  - `devtools::install_github("jtlovell/qtlTools")`
+  `devtools::install_github("jtlovell/qtlToolsTutorials")`
+  - `library(qtlTools)`
+  - `library(qtlToolsTutorials)`
+  
+3. The [`ggplot2`](http://ggplot2.org/) R package
+  - `install.pacakges("ggplot2")`
+  - `library(ggplot2)`
+  
+
+**The Tutorial dataset is included with the qtlToolsTutorials package**
+```{r}
+data("completeQTL_tutorial_data.rda")
+```
+
+
+# Overview - developing expectations for QTL interval sizes and number of candidate genes.
+One goal of QTL mapping is to determine the genes that have the potential to affect phenotypic trait variation ... candidate genes.
+While highly accurate, the precision of linkage mapping in experimental populations is limitted by the scale of recombination - QTL often span 100's of kb's and contain many gene models.
+
+To illustrate this, let's model the size of confidence intervals for a single large effect QTL in a 200 individual F2 population.
+
+```{r, echo = F, fig.cap = "Distribution of QTL confidence intervals (calculated as the 1-LOD drop interval) from 100 simulated linkage maps. For each map, a single QTL was simulated with a LOD score of approximately 25 (Additive effect = 1, dominance effect = 0)"}
+set.seed(42)
+qtlWidth<-sapply(1:100,function(x){
+  diff(
+    lodint(
+      scanone(
+        sim.cross(
+          map = sim.map(len = 100, n.mar = 50, include.x = F),
+          model = rbind(c(1,45,1,0)),
+          n.ind = 200,
+          type = "f2"),
+        method = "hk"))[c(1,3),2])
+})
+hist(qtlWidth, breaks = 20, xlab = "Width of QTL confidence interval (cM)",
+     main = "Histogram of 100 QTL intervals")
+```
+
+Note that most QTL's are 5-20cM wide. A typical *A. thaliana* genetic map is 500cM and 212Mb ... ~400Kb / cM. If the ~30k genes are distributed evenly, we might expect 300-1200 genes under any given QTL with a LOD of 25. As such, there is considerable work remaining after finding a QTL peak.
+
+**Note** *Higher LOD QTL, more recombination (e.g. RIL/MAGIC populations) or more individuals will reduce the width of QTL intervals. If there is little additional information in a mapping population, it is best to get information from as many recombinant genotypes as possible (e.g. subsequent fine mapping or very large populations).*
+
+\newpage
+
+# Overview: Concept of QTL mapping
+In essence, QTL mapping is the correlation of phenotype data with genotype data. For each genetic marker, a statistical test is applied. In the simplest form, this is just a linear model. 
+However, as mentioned in the genetic map construction tutorial, genetic data is error prone and often incomplete. Therefore, QTL mapping usually falls into two steps:
+1) Figure out the genotype probabilites along an evenly spaced "pseudomarker" grid. This is often accomplished using a HMM.
+2) Apply a likelihood-ratio statistic at each marker or pseudomarker, testing the odds ratio of a QTL present (Ha) vs. no QTL (Ho). The log of this odds ratio is known as the LOD score and is the most commonly reported QTL test statistic. 
+
+Here, we will follow a relatively standard QTL mapping work flow, as implemented in R/qtl...
+1. Calculate genotype probabilities (`qtl::calc.genoprob`), filling in gaps in the map.
+2. Run one-way QTL scans
+3. Test significance of QTL peaks using permutations
+4. Look for QTL*covariate interactions
+5. Look for additional QTL
+
+# Formatting and loading the data
+We will analyze a single trait in an F2 P. hallii mapping population. For the purposes of this tutorial, the data is stored in a standard `R/qtl` `cross` object: `cr`. 
+
+```{r}
+summary(cr)
+```
+
+However, typical QTL analysis datasets start with a genotype matrix, a `map`, and a phenotype matrix. To illustrate how to get the data into the right format, lets extract the map and the genotype / phenotype matrices from `cr`.
+
+```{r}
+phe.mat<-pull.pheno(cr)
+geno.mat<-pull.geno(cr)
+map<-pullMap(cr)
+```
+
+To simplify things, we store the genetic map positions within the column (marker) names of the genotype matrix and the line IDs as the row names. 
+```{r}
+colnames(geno.mat)<-paste0(map$chr,"_", round(map$pos,4))
+rownames(geno.mat)<-getid(cr)
+```
+
+```{r, echo = F}
+kable(geno.mat[1:5,1:5], caption = "The first 5 markers and F2 lines in the genotype matrix. Genotypes are coded as 1 = A/A, 2 = A/B, 3 = B/B.")
+```
+
+We can use a qtlTools function to write this matrix to an R/qtl input file, then use R/qtl::read.cross to load the file as a cross object. Note that we specify the coding of the genotypes and the type of cross when we read the matrix back in. This means that our genotype specification can be flexible. 
+```{r}
+geno2cross(geno.mat, crossfile = "~/Downloads/cross4tut.csv")
+
+cross<-read.cross("csv", file="~/Downloads/cross4tut.csv",
+                  genotypes=c(1,2,3), crosstype="f2")
+```
+
+# Pseudomarker calculation / imputatation
+For a lucky few, the genotype matrix will be completely saturated (all recombination events are captured) and error-free. However, for the rest of us, we need to fill in gaps in the map and fix genotyping errors before conducting QTL analysis. The way that we undertake this task depends on the amount of missing data and the likelihood of genotyping errors. 
+
+A good way to get a sense of the amount of missing data is to look at the 'entropy' in your map. Higher values mean more missing data or larger gaps. 
+```{r, fig.cap = "The scale of missing data in the cross. Note that the level of entropy in our cross does not exceed 20%. Not too shaby."}
+plot.info(cross)
+```
+
+A general rule of thumb is that if entropy is high, impute missing genotypes using `sim.geno`. However, if it is low, calculate genotype probabilities using `calc.genoprob`. The benefit of imputations is that it does a far better job of accurately measuring QTL positions within large gaps. However, it can be an order of magnitude slower than using genotype probabilites. 
+Both functions fill gaps in the map with 'psuedomarkers' that contain either the conditional genotype probabilities for that position in the map, or a matrix of `n.draws` imputations. Psuedomarkers fall along a grid where the distance between positions = `step`. Also, to speed things up, we can tell R/qtl to only fill gaps (and not generate an even grid) by specifying the `stepwidth` argument.
+
+To get imputed pseudomarkers:
+```{r}
+cross<-sim.geno(cross, step = 1, stepwidth = "max", n.draws = 64,
+                map.function = "kosambi", # use for plants
+                error.prob = 0.0001) # set this for your genotyping platform. 
+```
+
+To get conditional genotype probabilities:
+```{r}
+cross<-calc.genoprob(cross, step = 1, stepwidth = "max", 
+                map.function = "kosambi", # use for plants
+                error.prob = 0.0001) # set this for your genotyping platform. 
+```
+
+# Basic QTL mapping. 
+To run a single-trait QTL scan, we use the R/qtl function `scanone`, which tests the likelihood of a QTL vs. the NULL that there is no QTL. 
+
+But first, we need to add phenotype data to the cross object. Lets make sure that the id's in the phenotype matrix match exactly the cross object ids:
+
+```{r}
+identical(phe.mat$id, as.numeric(getid(cross)))
+```
+
+Since they match, we can just add the phenotype matrix to the cross object as such:
+```{r}
+cross$pheno<-phe.mat
+```
+
+If we want to use imputations, we specify method = "imp", otherwise, I typically use method = "hk", which runs a regression on the conditional genotype probabilites at each (pseudo)marker. Note that in this case, since we have a dense marker grid, the method doesn't matter much.
+```{r}
+s1.imp<-scanone(cross, method = "imp", pheno.col = "phenotype")
+s1.hk<-scanone(cross, method = "hk", pheno.col = "phenotype")
+plot(s1.imp, s1.hk, lty = c(1,3), col = c("black", "lightblue"))
+```
+
+However, we do have a few gaps in the map on Chr09. Note that the methods are a bit different there:
+```{r}
+plot(s1.imp, s1.hk, lty = c(1,1), col = c("black", rgb(0,0,1,.5)), chr = 9)
+```
+
+# Permutation tests for significance
+In GWAS and other QTL analyses, P-value adjustments (e.g. Bonferonni, qvalue, etc.) are employed to determine significance. However, in linkage mapping, we know that adjacent markers are not independent, thereby violating the assumptions of P-value transformations. As such, we run permutations to test for significance, which randomize the phenotype data, relative to the genotypes and output the maximum NULL LOD score. We then test if our QTL peak is higher than 95% (or whatever) of these permuted LOD scores
+```{r}
+s1.perm<-scanone(cross, method = "hk", pheno.col = "phenotype", n.perm = 100)
+plot(s1.perm)
+plot(s1.hk)
+add.threshold(s1.hk, perms = s1.perm, col = "red", lty = 2)
+summary(s1.hk, perms = s1.perm, alpha = 0.05, pvalues = T)
+```
+
+# QTL-covariate interactions. 
+Often our experimental designs are complicated and require correction for experimental covariates. We may also be interested in how allelic effects at a QTL are modulated by a covariate. 
+In this example, we have two treatments `wet` and `dry`. To use this information, we need to make a data.frame that contains numeric-coded covariate identities for each individual:
+```{r}
+covar = data.frame(covar = as.numeric(as.factor(pull.pheno(cross, "Treatment"))))
+head(covar)
+```
+
+We can then include this covariate in the QTL scan and compare the effects of the covariate by running three scans: no covariate, additive covariate and an interactive covariate
+```{r}
+s1.no.covar<-scanone(cross, method = "hk", pheno.col = "phenotype")
+s1.add.covar<-scanone(cross, method = "hk", pheno.col = "phenotype", addcovar = covar)
+s1.int.covar<-scanone(cross, method = "hk", pheno.col = "phenotype", addcovar = covar, intcovar = covar)
+plot(s1.int.covar, s1.add.covar,s1.no.covar)
+```
+
+We can now use permutations to test if the interaction or additive effect are significant:
+```{r, fig.cap = "interaction between treatment and genotype. Note that the genotype effect only slightly depends on the treatment. "}
+set.seed(42)
+perm.no.covar<-scanone(cross, method = "hk", pheno.col = "phenotype", 
+                       n.perm = 100, perm.strata = covar[,1], addcovar = NULL, verbose = F)
+set.seed(42)
+perm.add.covar<-scanone(cross, method = "hk", pheno.col = "phenotype", 
+                       n.perm = 100, perm.strata = covar[,1], addcovar = covar, verbose = F)
+set.seed(42)
+perm.int.covar<-scanone(cross, method = "hk", pheno.col = "phenotype", 
+                       n.perm = 100, perm.strata = covar[,1],
+                       addcovar = covar, intcovar = covar, verbose = F)
+kable(summary(s1.add.covar-s1.no.covar, 
+        perms = perm.add.covar-perm.no.covar,
+        pvalues = T), caption = "scanone results for the difference between no covariate andadditive covariate. Note that the Chr03 QTL is significant.")
+
+kable(summary(s1.int.covar-s1.add.covar, 
+        perms = perm.int.covar-perm.add.covar,
+        pvalues = T), caption = "scanone results for the difference between interactive covariate and additive covariate. Note that the Chr03 QTL marginally significant.")
+
+effectplot(cross, pheno.col = "phenotype", mname1 = "3_13.421", 
+           mark2 = covar[,1], geno2 = c("dry","wet",""))
+```
+
+# Find additional QTL
+Like in general statistical modeling, if we can control for variation in the response variable, we have greater ability to detect effects of predictors (markers) in QTL mapping. As such, it can be powerful to build multiple QTL models.
+
+```{r}
+qtl = makeqtl(cross, chr = 3, pos = 11, what = "prob")
+scan4secondqtl_add<-addqtl(cross, pheno.col = "phenotype", covar = covar, 
+                           formula = "y~Q1+Q1*covar+Q2+covar", qtl = qtl,
+                           method = "hk")
+scan4secondqtl_int<-addqtl(cross, pheno.col = "phenotype", covar = covar, 
+                           formula = "y~Q1+Q1*covar+Q2*covar+covar", qtl = qtl,
+                           method = "hk")
+plot(scan4secondqtl_int, scan4secondqtl_add)
+```
+
+In this case, there is not a lot going on - just a single QTL, but this is not always the case. 
