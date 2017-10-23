@@ -25,6 +25,7 @@ knitr::opts_chunk$set(echo = TRUE,
                       fig.width = 5.5, fig.height = 3.5)
 
 suppressPackageStartupMessages(library(qtlTools))
+suppressPackageStartupMessages(library(qtlToolsTutorials))
 suppressPackageStartupMessages(library(qtlDesign))
 suppressPackageStartupMessages(library(ggplot2))
 ```
