@@ -1,11 +1,22 @@
 Package: qtlToolsTutorials
 Type: Package
-Title: What the Package Does (Title Case)
-Version: 0.1.0
-Author: Who wrote it
-Maintainer: The package maintainer <yourself@somewhere.net>
-Description: More about what it does (maybe more than one line)
-    Use four spaces when indenting paragraphs within the Description.
-License: What license is it under?
-Encoding: UTF-8
-LazyData: true
+Title: Data and vignettes for qtlTools
+Version: 1.0.0
+Author: J.T. Lovell
+Maintainer: J.T. Lovell <johntlovell@gmail.com>
+Description: Tutorials for building genetic maps, running qtl analysis and finding candidate genes
+License: GPL-3
+LazyData: TRUE
+Depends:
+    qtl
+RoxygenNote: 6.0.1
+Requires: qtl,
+    zoo,
+    TSP
+Suggests: knitr,
+    rmarkdown,
+    lsmeans,
+    ggplot2,
+    qtlpvl,
+    rrBLUP
+VignetteBuilder: knitr

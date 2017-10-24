@@ -24,6 +24,10 @@ knitr::opts_chunk$set(echo = TRUE,
                       warning = FALSE, 
                       fig.width = 5.5, fig.height = 3.5)
 
+library(devtools)
+install_github("jtlovell/qtlTools")
+install_github("jtlovell/qtlToolsTutorials")
+
 suppressPackageStartupMessages(library(qtlTools))
 suppressPackageStartupMessages(library(qtlToolsTutorials))
 suppressPackageStartupMessages(library(qtlDesign))
@@ -41,7 +45,7 @@ For this tutorial, we need a couple datasets and R packages.
   - If you don't have the devtools package, run:
     - `install.packages("devtools")`
   - `devtools::install_github("jtlovell/qtlTools")`
-  `devtools::install_github("jtlovell/qtlToolsTutorials")`
+  - `devtools::install_github("jtlovell/qtlToolsTutorials")`
   - `library(qtlTools)`
   - `library(qtlToolsTutorials)`
   
@@ -52,36 +56,8 @@ For this tutorial, we need a couple datasets and R packages.
 
 **The Tutorial dataset is included with the qtlToolsTutorials package**
 ```{r}
-data("completeQTL_tutorial_data.rda")
+data("completeQTL_tutorial_data")
 ```
-
-
-# Overview - developing expectations for QTL interval sizes and number of candidate genes.
-One goal of QTL mapping is to determine the genes that have the potential to affect phenotypic trait variation ... candidate genes.
-While highly accurate, the precision of linkage mapping in experimental populations is limitted by the scale of recombination - QTL often span 100's of kb's and contain many gene models.
-
-To illustrate this, let's model the size of confidence intervals for a single large effect QTL in a 200 individual F2 population.
-
-```{r, echo = F, fig.cap = "Distribution of QTL confidence intervals (calculated as the 1-LOD drop interval) from 100 simulated linkage maps. For each map, a single QTL was simulated with a LOD score of approximately 25 (Additive effect = 1, dominance effect = 0)"}
-set.seed(42)
-qtlWidth<-sapply(1:100,function(x){
-  diff(
-    lodint(
-      scanone(
-        sim.cross(
-          map = sim.map(len = 100, n.mar = 50, include.x = F),
-          model = rbind(c(1,45,1,0)),
-          n.ind = 200,
-          type = "f2"),
-        method = "hk"))[c(1,3),2])
-})
-hist(qtlWidth, breaks = 20, xlab = "Width of QTL confidence interval (cM)",
-     main = "Histogram of 100 QTL intervals")
-```
-
-Note that most QTL's are 5-20cM wide. A typical *A. thaliana* genetic map is 500cM and 212Mb ... ~400Kb / cM. If the ~30k genes are distributed evenly, we might expect 300-1200 genes under any given QTL with a LOD of 25. As such, there is considerable work remaining after finding a QTL peak.
-
-**Note** *Higher LOD QTL, more recombination (e.g. RIL/MAGIC populations) or more individuals will reduce the width of QTL intervals. If there is little additional information in a mapping population, it is best to get information from as many recombinant genotypes as possible (e.g. subsequent fine mapping or very large populations).*
 
 \newpage
 
@@ -120,7 +96,7 @@ rownames(geno.mat)<-getid(cr)
 ```
 
 ```{r, echo = F}
-kable(geno.mat[1:5,1:5], caption = "The first 5 markers and F2 lines in the genotype matrix. Genotypes are coded as 1 = A/A, 2 = A/B, 3 = B/B.")
+kable(geno.mat[1:5,1:5], row.names = T, caption = "The first 5 markers and F2 lines in the genotype matrix. Genotypes are coded as 1 = A/A, 2 = A/B, 3 = B/B.")
 ```
 
 We can use a qtlTools function to write this matrix to an R/qtl input file, then use R/qtl::read.cross to load the file as a cross object. Note that we specify the coding of the genotypes and the type of cross when we read the matrix back in. This means that our genotype specification can be flexible. 
@@ -228,7 +204,7 @@ kable(summary(s1.int.covar-s1.add.covar,
         perms = perm.int.covar-perm.add.covar,
         pvalues = T), caption = "scanone results for the difference between interactive covariate and additive covariate. Note that the Chr03 QTL marginally significant.")
 
-effectplot(cross, pheno.col = "phenotype", mname1 = "3_13.421", 
+effectplot(cross, pheno.col = "phenotype", mname1 = "3_1.0175",
            mark2 = covar[,1], geno2 = c("dry","wet",""))
 ```
 

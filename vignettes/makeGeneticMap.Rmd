@@ -298,3 +298,12 @@ chrlen(map1) # original chr08 length
 chrlen(map2) # new chr08 length
 ```
 
+
+# Appendix 1 - Installing concorde ...
+To install `concorde`, get the program here: http://www.math.uwaterloo.ca/tsp/concorde/downloads/codes/src/co031219.tgz.
+
+On a PC, installation is pretty straightforward. Not so much on a mac. See here:
+https://qmha.wordpress.com/2015/08/20/installing-concorde-on-mac-os-x/.
+
+If you are on a mac, running macOS Sierra, I can share the install ... but I'm not sure how well it will work. 
+
