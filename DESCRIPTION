@@ -18,5 +18,6 @@ Suggests: knitr,
     lsmeans,
     ggplot2,
     qtlpvl,
-    rrBLUP
+    rrBLUP,
+    BiocStyle
 VignetteBuilder: knitr

@@ -1,65 +1,16 @@
----
-title: "Candidate Gene Search Tutorial"
-author: "JT Lovell"
-date: "`r Sys.Date()`"
-output: 
-  BiocStyle::pdf_document
-vignette: >
-  %\VignetteIndexEntry{Candidate Gene Search Tutorial}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}  
----
-
-
-***
-
-  [email: johntlovell@gmail.com](johntlovell@gmail.com)  --  [website: lovelleeb.weebly.com](lovelleeb.weebly.com)  --  [github: github.com/jtlovell/qtlTools](https://github.com/jtlovell/qtlTools)
-
-***
-
-# Part 1: Overview
-
-To search for candidate genes you need four objects. 
-
-1. gff - the gene model position dataset
-2. markerBp - the basepair position of markers 
-3. cross - the QTL cross object used to identify QTL
-4. interval - the numeric confidence interval of the QTL (chr, lower ci, upper ci)
-
-To infer the potential of a candidate gene you need at least one of 7 datasets.
-
-1. vcf - the polymorphisms between parents, in "vcf" format. It is optimal to have this annotated by snpEff or similar. 
-2. parentGeneExp - results of differential expression analysis between parents
-3. cisEQtl - a list of genes with cis-eQTL
-4. methyl - dataset containing the degree of methylation for each gene
-5. geneDescr - Gene descriptions
-6. GO - GO annotations
-7. geneExp - gene expression of the mapping population
-
-With these data, one can infer whether a gene is likely to contain the causal QTN(s)
-
-\newpage
-
-# Part 2: Getting set up
-```{r setup, include=FALSE, message=FALSE}
+## ----setup, include=FALSE, message=FALSE---------------------------------
 knitr::opts_chunk$set(echo = TRUE, fig.width = 5.5, fig.height = 3.5, warning = FALSE)
 library(knitr)
-```
 
-To start, you need the qtlTools package. Get it from github.
-```{r env.set.up, warning = F, message=FALSE}
+## ----env.set.up, warning = F, message=FALSE------------------------------
 library(devtools)
 install_github("jtlovell/qtlTools")
 library(qtlTools)
-```
 
-Load the multitrait data from R/qtl
-```{r loadmultitrait}
+## ----loadmultitrait------------------------------------------------------
 data(multitrait)
-```
 
-Create some fake physical positions of the markers allowing for low recombination in the middle of the chromosomes (as would be expected in the pericentromeric region)
-```{r fakemap}
+## ----fakemap-------------------------------------------------------------
 map<-pullMap(multitrait)
 map$bp<-0
 for(i in unique(map$chr)){
@@ -67,28 +18,20 @@ for(i in unique(map$chr)){
   p<-sin((1:n/n)*pi)
   map$bp[map$chr==i]<-cumsum(p*1000000)
 }
-```
 
-Create a fake gff file
-```{r fakegff}
+## ----fakegff-------------------------------------------------------------
 gff<-data.frame(chr = rep(paste0("scaffold_",1:5),each = 200),
    feature = rep("gene",1000),
    start = rep(seq(from = 0, to = max(map$bp), length = 200), 5),
    end = rep(seq(from = 0, to = max(map$bp), length = 200))+1000,
    strand = rep("+",1000),
    attribute = paste0("gene",1:1000,";","gene",1:1000,".1"), stringsAsFactors=F)
-```
 
-\newpage
-
-# Part 3: Infer the physical position of the genes, using the position of the markers
-```{r}
+## ------------------------------------------------------------------------
 geneCM<-findGenecM(cross = multitrait, marker.info = map, gff = gff,
    gffCols = c("chr","feature","start","end","strand","attribute"))
-```
 
-Plots showing the bp/cM patterns
-```{r plotrecom, fig.height = 4, fig.width = 6, fig.cap = "Physical and mapping positions of fake data for the 5 A. thaliana chromosomes."}
+## ----plotrecom, fig.height = 4, fig.width = 6, fig.cap = "Physical and mapping positions of fake data for the 5 A. thaliana chromosomes."----
 par(mfrow=c(2,3))
 for(i in unique(map$chr)){
   with(geneCM[geneCM$chr==i,], plot(pos,bp, col="grey", 
@@ -96,13 +39,8 @@ for(i in unique(map$chr)){
                                 xlab = "mapping position (cM)"))
   with(map[map$chr==i,], points(pos,bp, col=i, pch = 19, cex=.8))
 }
-```
 
-\newpage
-
-# Part 4: Find genes in the interval
-Make qtl intervals
-```{r, fig.height = 3, fig.width = 6, fig.cap = "Scanone profile with confidence intervals."}
+## ---- fig.height = 3, fig.width = 6, fig.cap = "Scanone profile with confidence intervals."----
 multitrait<-calc.genoprob(multitrait)
 s1<-scanone(multitrait, method="hk", pheno.col=1)
 perm<-scanone(multitrait, n.perm=100, method="hk",pheno.col=1, verbose=FALSE)
@@ -111,30 +49,12 @@ cis<-calcCis(cross = multitrait, s1.output=s1, perm.output=perm, drop=5)
 par(mfrow = c(1,1))
 plot(s1)
 segmentsOnPeaks(multitrait, s1.output=s1, calcCisOutput = cis, int.y = 13.1)
-```
 
-Pull out genes in the intervals
-```{r}
+## ------------------------------------------------------------------------
 candGenes<-findGenesInterval(findGenecM.output = geneCM, calcCis.output = cis)
 print(candGenes)
-```
 
-\newpage
-
-# Part 5: next steps
-There are a number of approaches to define how likely any gene is to be the candidate. 
-
-1. Genes with non-synonymous SNPs
-2. Genes with cis-eQTL (Lowry et al. 2013, Plant Cell)
-3. Genes with annotations similar to the trait of interest
-4. Covariance of expression and trait of interest in mapping population (Lovell et al. 2015, Plant Cell)
-5. Causal Inference testing
-
-Here, we will explore the 4th option.
-First, we must simulate some gene expression data:
-Let's just focus on the chromosome 5 QTL and say there are 50 genes under the QTl interval. Here, we simulate expression (normalized around 0) with a few genes with correlated expression with the focal marker.
-
-```{r, fig.height = 5, fig.width = 5, fig.cap = "correlation matrix of simulated gene expression data."}
+## ---- fig.height = 5, fig.width = 5, fig.cap = "correlation matrix of simulated gene expression data."----
 cross<-subset(multitrait, ind = !is.na(pull.pheno(multitrait, 1)))
 phe<-pull.pheno(cross, 1)
 
@@ -145,13 +65,8 @@ facs<-sapply(1:50, function(x){
 plot(sapply(1:50, function(x) cor(phe, facs[,x])),
      ylab = "cor. coef. (expression ~ chr5 QTL genotype)",
      xlab = "gene id")
-```
 
-In this simplistic example, we are simulating a case where expression drives a linear, additive QTL effect. However, this approach is extensible and permits inference of QTL*Treatment, epistasis, multiple QTL models and other cases. 
-
-So, lets run the covariate scan, testing how the QTL profile is affected by the presence of gene expression in the model. 
-
-```{r}
+## ------------------------------------------------------------------------
 expression.covariates = facs
 colnames(expression.covariates)<-paste0("gene",1:ncol(expression.covariates))
 pheno.col = 1
@@ -165,10 +80,8 @@ test_additive<-covScanQTL(cross = cross,
                  qtl.method = "hk",
                  nperm = 20)
 kable(head(test_additive), caption = "top candidate genes using a simple, additive covariate scan approach.")
-```
 
-Now include another QTL in the model and enforce an epistatic interaction between the 2nd (focal) and 1st QTL.
-```{r}
+## ------------------------------------------------------------------------
 qtl2 = makeqtl(cross, chr = summary(s1)$chr[4:5], 
                pos = summary(s1)$pos[4:5], what = "prob")
 test_epistasis<-covScanQTL(cross = cross,
@@ -181,11 +94,8 @@ test_epistasis<-covScanQTL(cross = cross,
                  nperm = 20)
 
 kable(head(test_epistasis), caption = "top candidate genes using a covariate scan that incorporates epistasis")
-```
 
-
-Now a little more complexity with an F2 cross and experimental covariates
-```{r}
+## ------------------------------------------------------------------------
 data(fake.f2)
 cross<-fake.f2
 phe<-pull.pheno(cross, 1)
@@ -210,5 +120,4 @@ test_QTLxE<-covScanQTL(cross = cross,
                  nperm = 20)
 
 kable(head(test_QTLxE), caption = "top candidate genes using a covariate scan that incorporates GxE")
-```
 
